@@ -14,19 +14,19 @@ class SmartBookExporter:
     def __init__(self, root):
         self.root = root
         self.system = platform.system()
-        self.root.title(f"Kindle 笔记导出 (v15.8 最终稳定版 - {self.system})")
+        self.root.title(f"Kindle 笔记自动匹配版 (v16.0 - {self.system})")
         self.root.geometry("750x850")
         
         # === 字体适配 ===
-        if self.system == "Darwin": # MacOS
+        if self.system == "Darwin":
             self.font_main = (".AppleSystemUIFont", 13)
             self.font_bold = (".AppleSystemUIFont", 14, "bold")
             self.font_large = (".AppleSystemUIFont", 20, "bold")
-        elif self.system == "Windows": # Windows
+        elif self.system == "Windows":
             self.font_main = ("Microsoft YaHei UI", 10)
             self.font_bold = ("Microsoft YaHei UI", 11, "bold")
             self.font_large = ("Microsoft YaHei UI", 16, "bold")
-        else: # Linux
+        else:
             self.font_main = ("Helvetica", 11)
             self.font_bold = ("Helvetica", 12, "bold")
             self.font_large = ("Helvetica", 18, "bold")
@@ -51,7 +51,8 @@ class SmartBookExporter:
         self.selected_book = None
         self.epub_chapters = []
         self.is_epub_ready = False
-        
+        self.row_widgets = {} # 存储 UI 行引用以便自动选择
+
         default_path = os.path.join(os.path.expanduser("~/Documents"), "My Clippings.txt")
         if os.path.exists(default_path):
             self.clippings_path.set(default_path)
@@ -79,16 +80,25 @@ class SmartBookExporter:
             except: return hex_color
 
     def _init_ui(self):
-        tk.Label(self.root, text="Kindle 笔记导出", font=self.font_large, bg=self.colors["window_bg"], fg=self.colors["text_pri"], pady=15).pack()
+        tk.Label(self.root, text="Kindle 笔记智能导出", font=self.font_large, bg=self.colors["window_bg"], fg=self.colors["text_pri"], pady=15).pack()
         
-        # Step 1
+        # Step 1: Clippings
         card1 = tk.Frame(self.root, bg=self.colors["card_bg"]); card1.pack(fill="x", padx=20, pady=5)
         tk.Label(card1, text="1. 加载 My Clippings.txt", font=self.font_main, bg=self.colors["card_bg"], fg=self.colors["text_sec"]).pack(anchor="w", padx=10, pady=5)
         row1 = tk.Frame(card1, bg=self.colors["card_bg"]); row1.pack(fill="x", padx=10, pady=5)
         tk.Entry(row1, textvariable=self.clippings_path, font=self.font_main, bg=self.colors["input_bg"], fg="white", bd=0).pack(side="left", fill="x", expand=True, ipady=6)
         self.DarkButton(row1, "📂 浏览", self.browse_clippings, font_cfg=self.font_main).pack(side="right", padx=5)
 
-        # Step 2: 列表区域
+        # Step 2: ePub (提前到第二步)
+        card3 = tk.Frame(self.root, bg=self.colors["card_bg"]); card3.pack(fill="x", padx=20, pady=5)
+        self.lbl_epub_status = tk.Label(card3, text="2. 解析 ePub (将自动匹配书籍)", font=self.font_main, bg=self.colors["card_bg"], fg=self.colors["text_sec"])
+        self.lbl_epub_status.pack(anchor="w", padx=10, pady=5)
+        row3 = tk.Frame(card3, bg=self.colors["card_bg"]); row3.pack(fill="x", padx=10, pady=5)
+        tk.Entry(row3, textvariable=self.target_epub_path, font=self.font_main, bg=self.colors["input_bg"], fg="white", bd=0).pack(side="left", fill="x", expand=True, ipady=6)
+        self.DarkButton(row3, "🔗 选择并解析", self.browse_epub, font_cfg=self.font_main).pack(side="right", padx=5)
+
+        # Step 3: 列表预览
+        tk.Label(self.root, text="匹配结果预览:", font=self.font_main, bg=self.colors["window_bg"], fg=self.colors["text_sec"]).pack(anchor="w", padx=25, pady=(10,0))
         card2 = tk.Frame(self.root, bg=self.colors["card_bg"])
         card2.pack(fill="both", expand=True, padx=20, pady=10)
         
@@ -101,74 +111,29 @@ class SmartBookExporter:
         
         self.inner_list = tk.Frame(self.cvs, bg=self.colors["card_bg"])
         self.cvs_window = self.cvs.create_window((0,0), window=self.inner_list, anchor="nw", width=700)
-        
         self.inner_list.bind("<Configure>", lambda e: self.cvs.configure(scrollregion=self.cvs.bbox("all")))
-        self.cvs.bind("<Configure>", lambda e: self.cvs.itemconfig(self.cvs_window, width=e.width))
-
-        # === 鼠标滚轮逻辑 ===
         self._setup_mouse_wheel()
 
-        # Step 3
-        card3 = tk.Frame(self.root, bg=self.colors["card_bg"]); card3.pack(fill="x", padx=20, pady=5)
-        self.lbl_epub_status = tk.Label(card3, text="等待选择 ePub...", font=self.font_main, bg=self.colors["card_bg"], fg=self.colors["text_sec"])
-        self.lbl_epub_status.pack(anchor="w", padx=10, pady=5)
-        row3 = tk.Frame(card3, bg=self.colors["card_bg"]); row3.pack(fill="x", padx=10, pady=5)
-        tk.Entry(row3, textvariable=self.target_epub_path, font=self.font_main, bg=self.colors["input_bg"], fg="white", bd=0).pack(side="left", fill="x", expand=True, ipady=6)
-        self.DarkButton(row3, "🔗 解析 ePub", self.browse_epub, font_cfg=self.font_main).pack(side="right", padx=5)
-
-        # Step 4
+        # Step 4: Export
         self.btn_export = self.DarkButton(self.root, "🚀 导出笔记", self.run_export, font_cfg=self.font_bold, bg=self.colors["accent"])
         self.btn_export.pack(fill="x", padx=20, pady=20)
         self.btn_export.set_enabled(False)
 
-    # ================= 鼠标滚轮逻辑 =================
-    def _setup_mouse_wheel(self):
-        def _on_mousewheel(event):
-            if self.system == "Windows":
-                self.cvs.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            elif self.system == "Darwin":
-                self.cvs.yview_scroll(int(-1 * event.delta), "units")
-
-        def _on_linux_scroll_up(event):
-            self.cvs.yview_scroll(-1, "units")
-            
-        def _on_linux_scroll_down(event):
-            self.cvs.yview_scroll(1, "units")
-
-        def _bind_to_mouse(event):
-            if self.system == "Linux":
-                self.cvs.bind_all("<Button-4>", _on_linux_scroll_up)
-                self.cvs.bind_all("<Button-5>", _on_linux_scroll_down)
-            else:
-                self.cvs.bind_all("<MouseWheel>", _on_mousewheel)
-
-        def _unbind_from_mouse(event):
-            if self.system == "Linux":
-                self.cvs.unbind_all("<Button-4>")
-                self.cvs.unbind_all("<Button-5>")
-            else:
-                self.cvs.unbind_all("<MouseWheel>")
-
-        self.cvs.bind('<Enter>', _bind_to_mouse)
-        self.cvs.bind('<Leave>', _unbind_from_mouse)
-
-    # ================= 辅助函数 =================
-    def clean_text_for_match(self, text):
-        return "".join(re.findall(r'\w+', str(text)))
-
-    def clean_note_content(self, text):
-        text = text.strip()
-        text = re.sub(r'[\(（]\d{4}-?$', '', text) 
-        text = re.sub(r'[\(（]$', '', text)       
-        return text.strip()
-
+    # ================= 逻辑核心 =================
     def browse_clippings(self):
         f = filedialog.askopenfilename(filetypes=[("Text", "*.txt")])
-        if f: self.clippings_path.set(f); self.load_clippings()
+        if f: 
+            self.clippings_path.set(f)
+            self.load_clippings()
 
     def browse_epub(self):
+        if not self.parsed_notes:
+            messagebox.showwarning("提示", "请先加载 My Clippings.txt")
+            return
         f = filedialog.askopenfilename(filetypes=[("Epub", "*.epub")])
-        if f: self.target_epub_path.set(f); self.parse_epub(f)
+        if f: 
+            self.target_epub_path.set(f)
+            self.parse_epub(f)
 
     def load_clippings(self):
         path = self.clippings_path.get()
@@ -180,7 +145,7 @@ class SmartBookExporter:
             for clip in clips:
                 lines = clip.strip().split('\n')
                 if len(lines) >= 2:
-                    title = lines[0].strip()
+                    title = lines[0].strip().replace('\ufeff', '')
                     note_start_idx = 0
                     for idx, line in enumerate(lines):
                         if line.strip() == "" and idx > 0:
@@ -195,14 +160,192 @@ class SmartBookExporter:
             self.book_list = sorted(list(self.parsed_notes.keys()))
             self.render_book_list()
         except Exception as e:
-            traceback.print_exc()
             messagebox.showerror("错误", f"解析失败: {str(e)}")
+
+    def parse_epub(self, epub_path):
+        self.lbl_epub_status.config(text="正在解析并匹配...", fg=self.colors["warning"])
+        self.root.update()
+        try:
+            book = epub.read_epub(epub_path)
+            
+            # --- 核心改进：自动匹配书籍 ---
+            epub_title = ""
+            meta_titles = book.get_metadata('DC', 'title')
+            if meta_titles:
+                epub_title = meta_titles[0][0] # 提取 ePub 标题文本
+            
+            # 模糊匹配 Kindle 列表
+            matched_title = self.find_best_match(epub_title)
+            
+            # 解析章节逻辑 (增强版：支持任意层级嵌套、epub.Section、多 anchor 及文件名归一化)
+            self.epub_chapters = []
+            toc_map = {}
+            toc_anchors = defaultdict(list)
+
+            def extract_toc(toc_list, parent_title=None, current_depth=2):
+                for item in toc_list:
+                    if isinstance(item, epub.Link):
+                        href_full = item.href
+                        file_part, _, anchor_part = href_full.partition('#')
+                        entry = (item.title.strip(), current_depth, parent_title)
+                        if file_part not in toc_map:
+                            toc_map[file_part] = entry
+                        base_name = os.path.basename(file_part)
+                        if base_name not in toc_map:
+                            toc_map[base_name] = entry
+                        if anchor_part:
+                            toc_anchors[file_part].append((anchor_part, *entry))
+                            toc_anchors[base_name].append((anchor_part, *entry))
+                    elif isinstance(item, epub.Section):
+                        title = item.title.strip() if item.title else ""
+                        href = getattr(item, 'href', '') or ''
+                        if href:
+                            file_part, _, anchor_part = href.partition('#')
+                            entry = (title, current_depth, parent_title)
+                            if file_part not in toc_map:
+                                toc_map[file_part] = entry
+                            base_name = os.path.basename(file_part)
+                            if base_name not in toc_map:
+                                toc_map[base_name] = entry
+                            if anchor_part:
+                                toc_anchors[file_part].append((anchor_part, *entry))
+                                toc_anchors[base_name].append((anchor_part, *entry))
+                    elif isinstance(item, (list, tuple)):
+                        if len(item) == 0:
+                            continue
+                        first = item[0]
+                        first_title = getattr(first, 'title', '')
+                        if not first_title and isinstance(first, str):
+                            first_title = first
+                        first_title = first_title.strip() if first_title else None
+                        first_href = getattr(first, 'href', '') or ''
+                        if first_href:
+                            file_part, _, anchor_part = first_href.partition('#')
+                            entry = (first_title, current_depth, parent_title)
+                            if file_part not in toc_map:
+                                toc_map[file_part] = entry
+                            base_name = os.path.basename(file_part)
+                            if base_name not in toc_map:
+                                toc_map[base_name] = entry
+                            if anchor_part:
+                                toc_anchors[file_part].append((anchor_part, *entry))
+                                toc_anchors[base_name].append((anchor_part, *entry))
+                        
+                        next_parent = first_title or parent_title
+                        if len(item) > 1 and isinstance(item[1], (list, tuple)):
+                            extract_toc(item[1], parent_title=next_parent, current_depth=current_depth+1)
+                        else:
+                            for sub in item[1:]:
+                                extract_toc([sub], parent_title=next_parent, current_depth=current_depth+1)
+
+            if hasattr(book, 'toc') and book.toc:
+                extract_toc(book.toc)
+
+            # 按 Spine 线性阅读顺序获取文档，若无则使用 get_items
+            spine_items = []
+            if hasattr(book, 'spine') and book.spine:
+                for s in book.spine:
+                    item_id = s[0] if isinstance(s, (list, tuple)) else s
+                    doc_item = book.get_item_with_id(item_id)
+                    if doc_item and doc_item.get_type() == ebooklib.ITEM_DOCUMENT:
+                        spine_items.append(doc_item)
+            docs_to_process = spine_items if spine_items else [it for it in book.get_items() if it.get_type() == ebooklib.ITEM_DOCUMENT]
+
+            idx = 0
+            last = {"title": "前言", "depth": 2, "parent": None}
+            running_chapter = None
+            for item in docs_to_process:
+                name = item.get_name()
+                base_name = os.path.basename(name)
+                soup = BeautifulSoup(item.get_content(), 'html.parser')
+
+                # 匹配章节名：优先完整路径，其次文件名
+                title, depth, parent = "", 2, None
+                if name in toc_map:
+                    title, depth, parent = toc_map[name]
+                elif base_name in toc_map:
+                    title, depth, parent = toc_map[base_name]
+                else:
+                    # 尝试从 h1-h4 标签中读取
+                    for t, d in {'h1':2, 'h2':3, 'h3':4}.items():
+                        found = soup.find(t)
+                        if found and 0 < len(found.text.strip()) < 60:
+                            title, depth = found.text.strip(), d
+                            if d == 2: parent = None
+                            else: parent = last["parent"]
+                            break
+                    if not title:
+                        # 尝试从 class 带 title / chapter / heading 的元素中读取
+                        candidate = soup.find(class_=re.compile(r"title|chapter|heading", re.I))
+                        if candidate and 0 < len(candidate.text.strip()) < 60:
+                            title, depth, parent = candidate.text.strip(), 3, last["parent"]
+                    if not title:
+                        # 尝试匹配常见章节标题正则
+                        chap_regex = re.compile(r'^(第[0-9一二三四五六七八九十百千]+[章卷节回部]|Chapter\s+\d+|[•·]\s*\d+\s*[•·])\s*(.*)', re.I)
+                        for p in soup.find_all(['p', 'div'])[:5]:
+                            p_text = p.get_text().strip()
+                            if 0 < len(p_text) < 60 and chap_regex.match(p_text):
+                                title, depth, parent = p_text, 3, last["parent"]
+                                break
+
+                if not title:
+                    title, depth, parent = last["title"], last["depth"], last["parent"]
+                else:
+                    last = {"title": title, "depth": depth, "parent": parent}
+
+                if depth == 2:
+                    running_chapter = title
+                if depth > 2 and parent is None and running_chapter:
+                    parent = running_chapter
+
+                self.epub_chapters.append({
+                    "index": idx,
+                    "title": title,
+                    "clean_text": self.clean_text_for_match(soup.get_text()),
+                    "depth": depth,
+                    "parent": parent
+                })
+                idx += 1
+
+            self.is_epub_ready = True
+            
+            # 如果找到了匹配的书籍，自动选择它
+            if matched_title:
+                self.on_select_book(matched_title)
+                self.lbl_epub_status.config(text=f"✅ 已自动匹配: {matched_title[:30]}...", fg=self.colors["success"])
+                self.btn_export.set_enabled(True)
+            else:
+                self.lbl_epub_status.config(text="⚠ 解析成功但未找到匹配书籍，请手动点击列表", fg=self.colors["warning"])
+                
+        except Exception as e:
+            self.lbl_epub_status.config(text="❌ 解析失败", fg="red")
+            traceback.print_exc()
+
+    def find_best_match(self, epub_title):
+        """简单的模糊匹配：检查 ePub 标题是否包含在 Kindle 书名中，反之亦然"""
+        if not epub_title: return None
+        
+        target = self.clean_text_for_match(epub_title).lower()
+        
+        # 1. 精确包含匹配
+        for book in self.book_list:
+            clean_book = self.clean_text_for_match(book).lower()
+            if target in clean_book or clean_book in target:
+                return book
+        
+        # 2. 如果没找到，尝试匹配前 5 个字符 (应对长书名差异)
+        if len(target) > 5:
+            short_target = target[:8]
+            for book in self.book_list:
+                if short_target in self.clean_text_for_match(book).lower():
+                    return book
+        return None
 
     def render_book_list(self):
         for w in self.inner_list.winfo_children(): w.destroy()
         self.row_widgets = {}
         for title in self.book_list:
-            display_title = title.replace('\ufeff', '').strip()
+            display_title = title.strip()
             row = tk.Frame(self.inner_list, bg=self.colors["card_bg"], pady=8, padx=5)
             row.pack(fill="x")
             lbl = tk.Label(row, text=display_title, font=self.font_main, bg=self.colors["card_bg"], fg="white", anchor="w")
@@ -214,70 +357,41 @@ class SmartBookExporter:
             lbl.bind("<Button-1>", cmd)
             self.row_widgets[title] = {"frame": row, "label": lbl}
         self.inner_list.update_idletasks()
-        try: self.cvs.configure(scrollregion=self.cvs.bbox("all"))
-        except: pass
 
     def on_select_book(self, title):
+        # 取消之前的选择
         if self.selected_book and self.selected_book in self.row_widgets:
             w = self.row_widgets[self.selected_book]
             w["frame"].config(bg=self.colors["card_bg"])
             w["label"].config(bg=self.colors["card_bg"])
+        
+        # 设置新选择
         self.selected_book = title
         if title in self.row_widgets:
             w = self.row_widgets[title]
             w["frame"].config(bg=self.colors["accent"])
             w["label"].config(bg=self.colors["accent"])
-        if self.is_epub_ready: self.btn_export.set_enabled(True)
-
-    def parse_epub(self, epub_path):
-        self.lbl_epub_status.config(text="解析中...", fg=self.colors["warning"])
-        self.root.update()
-        try:
-            book = epub.read_epub(epub_path)
-            self.epub_chapters = []
-            toc_map = {}
-            def parse_toc_recursive(toc, parent=None, depth=2):
-                for item in toc:
-                    if isinstance(item, epub.Link):
-                        toc_map[item.href.split('#')[0]] = (item.title, depth, parent)
-                    elif isinstance(item, (list, tuple)):
-                        parse_toc_recursive(item, parent=parent, depth=depth+1)
-            for item in book.toc:
-                if isinstance(item, epub.Link): toc_map[item.href.split('#')[0]] = (item.title, 2, None)
-                elif isinstance(item, (list, tuple)) and len(item)>0:
-                    if isinstance(item[0], epub.Link):
-                        toc_map[item[0].href.split('#')[0]] = (item[0].title, 2, None)
-                        if len(item) > 1: parse_toc_recursive(item[1], parent=item[0].title, depth=3)
+            # 自动滚动到该位置
+            self.cvs.yview_moveto(w["frame"].winfo_y() / self.inner_list.winfo_height() if self.inner_list.winfo_height() > 0 else 0)
             
-            idx = 0
-            last = {"title": "前言", "depth": 2, "parent": None}
-            running_chapter = None
+        if self.is_epub_ready: 
+            self.btn_export.set_enabled(True)
 
-            for item in book.get_items():
-                if item.get_type() == ebooklib.ITEM_DOCUMENT:
-                    name = item.get_name()
-                    soup = BeautifulSoup(item.get_content(), 'html.parser')
-                    title, depth, parent = "", 2, None
-                    if name in toc_map: title, depth, parent = toc_map[name]
-                    else:
-                        for t, d in {'h1':2, 'h2':3, 'h3':4}.items():
-                            found = soup.find(t)
-                            if found and 0 < len(found.text.strip()) < 50:
-                                title, depth = found.text.strip(), d
-                                if d==2: parent = None
-                                else: parent = last["parent"]
-                                break
-                    if not title: title, depth, parent = last["title"], last["depth"], last["parent"]
-                    else: last = {"title": title, "depth": depth, "parent": parent}
-                    if depth == 2: running_chapter = title
-                    if depth > 2 and parent is None and running_chapter: parent = running_chapter
-                    self.epub_chapters.append({"index": idx, "title": title, "clean_text": self.clean_text_for_match(soup.get_text()), "depth": depth, "parent": parent})
-                    idx += 1
-            self.is_epub_ready = True
-            self.lbl_epub_status.config(text=f"✅ 成功解析 {len(self.epub_chapters)} 章节", fg=self.colors["success"])
-            if self.selected_book: self.btn_export.set_enabled(True)
-        except Exception as e:
-            self.lbl_epub_status.config(text="❌ 解析失败", fg="red"); print(e)
+    # ================= 其他辅助函数 (保持不变) =================
+    def clean_text_for_match(self, text):
+        return "".join(re.findall(r'\w+', str(text)))
+
+    def clean_note_content(self, text):
+        text = text.strip()
+        text = re.sub(r'[\(（]\d{4}-?$', '', text) 
+        text = re.sub(r'[\(（]$', '', text)       
+        return text.strip()
+
+    def _setup_mouse_wheel(self):
+        def _on_mousewheel(event):
+            if self.system == "Windows": self.cvs.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            else: self.cvs.yview_scroll(int(-1 * event.delta), "units")
+        self.cvs.bind_all("<MouseWheel>", _on_mousewheel)
 
     def smart_deduplicate(self, note_list):
         if not note_list: return []
@@ -294,6 +408,7 @@ class SmartBookExporter:
         return final_notes
 
     def run_export(self):
+        if not self.selected_book: return
         title = self.selected_book
         notes = self.parsed_notes[title]
         unique_notes_source = []
@@ -314,7 +429,6 @@ class SmartBookExporter:
         desktop = os.path.join(os.path.expanduser("~"), "Desktop", "Matched_Notes")
         if not os.path.exists(desktop): os.makedirs(desktop)
         
-        # === 修复: 将正则操作移出 f-string，兼容 Python < 3.12 ===
         safe_title = re.sub(r'[^\w\-_]', '', title)
         path = os.path.join(desktop, f"{safe_title}.md")
 
@@ -329,12 +443,12 @@ class SmartBookExporter:
                         if chap["parent"] and chap["parent"] != last_parent: f.write(f"## {chap['parent']}\n\n"); last_parent = chap["parent"]
                         prefix = "###" if chap["parent"] else ("##" if chap["depth"]==2 else "###")
                         f.write(f"{prefix} {chap['title']}\n\n")
-                    for n in buckets[idx]: f.write(f"> {n}\n\n"); f.write("\n")
+                    for n in buckets[idx]: f.write(f"> {n}\n\n")
             if unmatched:
                 f.write("---\n## 未归类笔记\n\n")
                 for n in unmatched: f.write(f"> {n}\n\n")
 
-        messagebox.showinfo("完成", f"导出成功！包含笔记: {len(optimized_notes)} 条")
+        messagebox.showinfo("完成", f"导出成功！包含笔记: {len(optimized_notes)} 条\n文件已保存至桌面 Matched_Notes 文件夹")
         try:
             if self.system == "Windows": os.startfile(desktop)
             elif self.system == "Darwin": subprocess.call(["open", desktop])

@@ -1,0 +1,14 @@
+# System
+.DS_Store
+*/.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Editor
+.vscode/
+.idea/
